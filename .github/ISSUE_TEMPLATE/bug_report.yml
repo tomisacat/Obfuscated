@@ -1,0 +1,82 @@
+name: Bug Report
+description: Report unexpected behavior, build failures, or macro expansion errors
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please include enough detail to reproduce the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: The `#Obfuscated` macro expands to … but at runtime …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code sample, macro call, or command sequence.
+      placeholder: |
+        1. Add `#Obfuscated("secret", methods: [.xor(key: 0x5A)])`
+        2. Run `swift test` / build in Xcode
+        3. See error …
+    validations:
+      required: true
+
+  - type: input
+    id: swift-version
+    attributes:
+      label: Swift version
+      placeholder: "6.2"
+    validations:
+      required: true
+
+  - type: input
+    id: xcode-version
+    attributes:
+      label: Xcode version (if applicable)
+      placeholder: "16.4"
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - iOS
+        - tvOS
+        - watchOS
+        - macCatalyst
+        - Swift Package Manager only
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / compiler output
+      description: Paste relevant build errors or macro diagnostics.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-report checklist
+      options:
+        - label: I searched existing issues before opening this report
+          required: true
+        - label: I can reproduce this on the latest `main` branch
+          required: false

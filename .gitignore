@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+/Packages
+Package.pins
+
+# Xcode integration for Swift packages (generated locally)
+.swiftpm/
+
+# Xcode-generated Package.resolved when opening .xcodeproj workspaces
+**/project.xcworkspace/xcshareddata/swiftpm/
+
+# Xcode
+DerivedData/
+build/
+**/xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.hmap
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+
+# Xcode indexing & profiling
+.index-build/
+*.profraw
+*.profdata
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Archives, debug symbols & test results
+*.app
+*.ipa
+*.xcarchive
+*.dSYM
+*.dSYM.zip
+*.xcresult
+TestResults/
+
+# Credentials
+.netrc

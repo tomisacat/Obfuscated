@@ -1,0 +1,58 @@
+name: Feature Request
+description: Suggest a new obfuscation method, macro capability, or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem you're trying to solve and the behavior you'd like to see.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What limitation are you hitting today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API shape, new method, macro syntax, or workflow change.
+      placeholder: |
+        ```swift
+        #Obfuscated("secret", methods: [.newMethod(...)])
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you've thought about.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Macro API (`#Obfuscated`)
+        - Obfuscation methods / CryptoKit
+        - Core pipeline
+        - Demo app
+        - Documentation
+        - Tooling / CI
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-request checklist
+      options:
+        - label: I searched existing issues and PRs for similar requests
+          required: true
