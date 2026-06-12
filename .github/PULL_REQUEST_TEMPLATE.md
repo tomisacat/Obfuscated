@@ -23,5 +23,5 @@
 
 - [ ] Follows existing code style and conventions
 - [ ] Added or updated tests where appropriate
-- [ ] Updated `README.md`, `DOCUMENTATION.md`, or `ARCHITECTURE.md` if needed
+- [ ] Updated `README.md` or docs in `docs/` if needed
 - [ ] No secrets or credentials committed

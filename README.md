@@ -54,7 +54,7 @@ The macro accepts string literals only — not variables. `\(...)` works when th
 
 Obfuscation happens at **compile time**; runtime only reverses the embedded byte payload. The package splits into three layers: public macros, a compiler plugin, and a shared encode/decode core.
 
-Full diagrams and walkthroughs are in **[ARCHITECTURE.md](ARCHITECTURE.md)**:
+Full diagrams and walkthroughs are in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**:
 
 ## Obfuscation methods
 
@@ -78,8 +78,9 @@ Open [`Demo/ObfuscatedDemo.xcodeproj`](Demo/ObfuscatedDemo.xcodeproj) to run a S
 
 | Document | Contents |
 |----------|----------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Mermaid diagrams and system data flow |
-| [DOCUMENTATION.md](DOCUMENTATION.md) | Full source reference — every module, type, and algorithm |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Mermaid diagrams and system data flow |
+| [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) | Full source reference — every module, type, and algorithm |
+| [docs/RELEASE_NOTES/v1.0.0.md](docs/RELEASE_NOTES/v1.0.0.md) | Initial release notes |
 
 ## Testing
 

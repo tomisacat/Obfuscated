@@ -1,5 +1,7 @@
 # Obfuscated — Source Documentation
 
+← [Back to README](../README.md)
+
 Complete reference for every module, type, and file in the package. For diagrams and data flow, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---

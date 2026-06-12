@@ -3,7 +3,7 @@
 /// Import this module and use ``Obfuscated(_:methods:)``
 /// to embed obfuscated secrets that decode to ordinary `String` values at runtime.
 ///
-/// See the package `DOCUMENTATION.md` for the full API and algorithm reference.
+/// See `docs/DOCUMENTATION.md` for the full API and algorithm reference.
 @_exported import ObfuscatedCore
 
 /// Re-exported pipeline method descriptor from ``ObfuscatedCore``.

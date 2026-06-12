@@ -1,6 +1,6 @@
 # Obfuscated — Architecture
 
-← [Back to README](README.md)
+← [Back to README](../README.md)
 
 For the full source reference (every type, file, and algorithm), see [DOCUMENTATION.md](DOCUMENTATION.md).
 
