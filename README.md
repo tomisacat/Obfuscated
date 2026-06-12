@@ -4,6 +4,16 @@ Compile-time string obfuscation for Swift via freestanding macros.
 
 Use `#Obfuscated("secret", methods: [...])` and get a normal `String` back — no wrapper type, no manual decode, no extra setup. Obfuscation happens at build time; the rest of your code treats the value like any other string.
 
+## Showcase
+
+The included demo app exercises every obfuscation method and verifies compile-time bytes differ from the plain UTF-8 literal.
+
+<p align="center">
+  <img src="docs/images/Obfuscated.png" alt="Obfuscated Demo on iPhone — macro source, decoded value, and runtime checks for HKDF and ECIES methods" width="320">
+</p>
+
+Open [`Demo/ObfuscatedDemo.xcodeproj`](Demo/ObfuscatedDemo.xcodeproj) to run the catalog on iOS or macOS.
+
 ## Requirements
 
 - Swift 6.2+
@@ -69,10 +79,6 @@ Full diagrams and walkthroughs are in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE
 Pass `nil` for crypto key material to generate random values at compile time. Pass explicit `ObfuscatedKey`, `ObfuscatedNonce`, `ObfuscatedSalt`, or `ObfuscatedInfo` for reproducible output.
 
 Methods chain left-to-right at encode time and reverse at decode time.
-
-## Demo app
-
-Open [`Demo/ObfuscatedDemo.xcodeproj`](Demo/ObfuscatedDemo.xcodeproj) to run a SwiftUI catalog of every method on iOS and macOS.
 
 ## Documentation
 
