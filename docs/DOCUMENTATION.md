@@ -11,13 +11,15 @@ Complete reference for every module, type, and file in the package. For diagrams
 1. [Package overview](#package-overview)
 2. [Public API (`Obfuscated`)](#public-api-obfuscated)
 3. [Core engine (`ObfuscatedCore`)](#core-engine-obfuscatedcore)
-4. [Macro plugin (`ObfuscatedMacros`)](#macro-plugin-obfuscatedmacros)
-5. [Obfuscation methods reference](#obfuscation-methods-reference)
-6. [Crypto material model](#crypto-material-model)
-7. [Encode/decode pipeline](#encodedecode-pipeline)
-8. [Errors](#errors)
-9. [Testing](#testing)
-10. [Demo app](#demo-app)
+4. [Macro support (`ObfuscatedMacroSupport`)](#macro-support-obfuscatedmacrosupport)
+5. [Default macro plugin (`ObfuscatedMacros`)](#default-macro-plugin-obfuscatedmacros)
+6. [Custom obfuscation steps](#custom-obfuscation-steps)
+7. [Obfuscation methods reference](#obfuscation-methods-reference)
+8. [Crypto material model](#crypto-material-model)
+9. [Encode/decode pipeline](#encodedecode-pipeline)
+10. [Errors](#errors)
+11. [Testing](#testing)
+12. [Demo app and support package](#demo-app-and-support-package)
 
 ---
 
@@ -25,12 +27,15 @@ Complete reference for every module, type, and file in the package. For diagrams
 
 | Target | Visibility | Role |
 |--------|------------|------|
-| `Obfuscated` | **Public product** | Re-exports core types; declares `#Obfuscated` macro |
-| `ObfuscatedCore` | Internal (types re-exported) | Obfuscation pipeline, CryptoKit integration, runtime decode |
-| `ObfuscatedMacros` | Compiler plugin | Parses macro syntax, runs encode at compile time, emits expansion |
+| `Obfuscated` | **Public product** | Re-exports core types; declares `#Obfuscated` macro (default plugin) |
+| `ObfuscatedCore` | **Public product** | Obfuscation pipeline, CryptoKit integration, runtime decode, custom step protocol |
+| `ObfuscatedMacroSupport` | **Public product** | Shared macro parser, builder, `ObfuscatedMacro`, registration hook |
+| `ObfuscatedMacros` | Compiler plugin | Default plugin; built-in methods only |
 | `ObfuscatedCoreTests` | Tests | Round-trip and validation tests for the pipeline |
 | `ObfuscatedTests` | Tests | Macro parsing, expansion, and smoke tests |
-| `ObfuscatedDemo` | Demo app (Xcode) | SwiftUI catalog; not part of the Swift package product |
+| `ObfuscatedTestSupport` | Test helper | Sample `MyRot13Step` for custom step tests |
+| `ObfuscatedDemo` | Demo app (Xcode) | SwiftUI catalog; not part of the root Swift package |
+| `ObfuscatedDemoSupport` | Demo local package | `ObfuscatedDemoKit` + custom macro plugin (`Demo/ObfuscatedDemoSupport/`) |
 
 **Dependency:** [swift-syntax](https://github.com/swiftlang/swift-syntax) 603.x (macro plugin only).
 
@@ -85,12 +90,17 @@ let header = #Obfuscated("Bearer \("abc")", methods: [.xor(key: 0x5A)])
 | `ObfuscatedNonce` | `ObfuscatedCore.ObfuscatedNonce` |
 | `ObfuscatedSalt` | `ObfuscatedCore.ObfuscatedSalt` |
 | `ObfuscatedInfo` | `ObfuscatedCore.ObfuscatedInfo` |
+| `ObfuscationParameters` | `ObfuscatedCore.ObfuscationParameters` |
+| `ObfuscationStep` | `ObfuscatedCore.ObfuscationStep` |
+| `ObfuscationStepRegistry` | `ObfuscatedCore.ObfuscationStepRegistry` |
+
+**Default macro:** `#Obfuscated` resolves to `ObfuscatedMacros.ObfuscatedMacro`. For custom steps, use a user-owned plugin — see [Custom obfuscation steps](#custom-obfuscation-steps) and [CUSTOM_OBFUSCATION_STEPS.md](CUSTOM_OBFUSCATION_STEPS.md).
 
 ---
 
 ## Core engine (`ObfuscatedCore`)
 
-Internal implementation. Public types are re-exported through `Obfuscated`. The pipeline is also usable directly for testing and tooling.
+Public library (also re-exported through `Obfuscated`). The pipeline is usable directly for testing and tooling.
 
 ### `ObfuscationMethod.swift`
 
@@ -135,8 +145,25 @@ Discriminated union of every supported transform. See [Obfuscation methods refer
 | `invalidP256PrivateKeySize(Int)` | Recipient key not 32 bytes |
 | `invalidBase64Payload` | Base64 decode failure |
 | `missingCryptoMaterial(String)` | Decode expected a `CryptoEntry` but stack was empty |
+| `unknownCustomStep(String)` | No registered `ObfuscationStep` for `.custom(id:parameters:)` |
+| `missingCustomMaterial` | Decode expected a `CustomMaterialEntry` but stack was empty |
 | `cryptoUnavailable` | Reserved (CryptoKit always available on supported platforms) |
 | `decodingFailed(String)` | UTF-8 failure, bitOr overlap, nonce size, etc. |
+
+---
+
+### `ObfuscationStep.swift`
+
+Custom obfuscation protocol and registry. See [Custom obfuscation steps](#custom-obfuscation-steps).
+
+| Type | Role |
+|------|------|
+| `ObfuscationParameters` | Literal byte parameters from macro source (`ObfuscationParameters(bytes: [13])`) |
+| `CustomMaterialEntry` | Per-step persisted state (`id`, `payload`) embedded in expansions |
+| `ObfuscationStep` | Protocol: `id`, `validate`, `encode`, `decode` |
+| `ObfuscationStepRegistry` | Thread-safe registry of step types for pipeline + macro encode |
+
+`CryptoMaterial` extensions: `appendCustomEntry(id:payload:)`, `popCustomEntry()`.
 
 ---
 
@@ -150,6 +177,7 @@ Central encode/decode orchestrator.
 2. Convert `String` → UTF-8 `[UInt8]`.
 3. Apply each method **in order** (forward):
    - Lightweight → transform `payload.bytes` in place
+   - `.custom` → look up `ObfuscationStep` in registry, call `encode`, optionally append `CustomMaterialEntry`
    - Crypto → `CryptoObfuscator.encrypt`, append `CryptoEntry` to `payload.material.entries`
 4. Return `EncodedPayload`.
 
@@ -158,10 +186,11 @@ Central encode/decode orchestrator.
 1. Validate all methods.
 2. Apply each method **in reverse order**:
    - Crypto → `popLast()` from `material.entries`, `CryptoObfuscator.decrypt`
+   - `.custom` → look up step, `popCustomEntry()`, call `decode`
    - Lightweight → inverse transform
 3. Convert bytes → `String` (UTF-8).
 
-**Invariant:** crypto entries are pushed in encode order and popped in reverse decode order. Pipeline methods must match exactly between macro expansion and runtime.
+**Invariant:** crypto and custom entries are pushed in encode order and popped in reverse decode order. Pipeline methods must match exactly between macro expansion and runtime.
 
 ---
 
@@ -214,10 +243,11 @@ One crypto step's persisted state, embedded in macro expansions.
 ```swift
 public struct CryptoMaterial {
     public var entries: [CryptoEntry]
+    public var customEntries: [CustomMaterialEntry]
 }
 ```
 
-Ordered stack of crypto entries. One entry per crypto method in the pipeline.
+Ordered stacks of crypto and custom entries. One entry per crypto or custom method in the pipeline.
 
 #### `EncodedPayload`
 
@@ -307,35 +337,26 @@ public enum ObfuscatedRuntime {
 
 ---
 
-## Macro plugin (`ObfuscatedMacros`)
+## Macro support (`ObfuscatedMacroSupport`)
 
-Runs at compile time in a separate plugin process. Depends on `ObfuscatedCore` and swift-syntax.
+Shared library used by `ObfuscatedMacros` and user-owned macro plugins. Depends on `ObfuscatedCore` and swift-syntax.
 
-### `ObfuscatedPlugin.swift`
+### `ObfuscationMacroConfiguration.swift`
 
-```swift
-@main
-struct ObfuscatedPlugin: CompilerPlugin {
-    let providingMacros: [Macro.Type] = [
-        ObfuscatedMacro.self,
-    ]
-}
-```
+Plugin initialization hook. Call `configure(registration:)` from the plugin's `init` to register custom `ObfuscationStep` types before any expansion runs.
 
-### `ObfuscatedMacro.swift`
-
-#### `MacroSyntaxParser` (internal)
+### `MacroSyntaxParser.swift`
 
 Parses Swift syntax from macro arguments into `ObfuscationMethod` values.
 
 | Helper | Parses |
 |--------|--------|
 | `foldedStaticString(from:)` | Folds a literal and static `\("...")` segments into one string |
-| `stringLiteral(from:)` | Alias for ``foldedStaticString(from:)`` |
+| `stringLiteral(from:)` | Alias for `foldedStaticString(from:)` |
 | `uint8(from:)` | Integer literal 0…255 (decimal, hex `0x`, octal `0o`, binary `0b`) |
 | `byteArray(from:)` | `[UInt8]` array literal |
 | `parseMethods(from:)` | `[ObfuscationMethod]` array literal |
-| `parseMethod(from:)` | Single method call like `.xor(key: 0x5A)` |
+| `parseMethod(from:)` | Single method call like `.xor(key: 0x5A)` or `.custom(id: "rot13", parameters: ...)` |
 
 **Supported method syntax in macros:**
 
@@ -345,26 +366,69 @@ Parses Swift syntax from macro arguments into `ObfuscationMethod` values.
 .bitShift(by: 3)
 .bitOr(mask: 0x80)
 .base64
+.custom(id: "rot13", parameters: ObfuscationParameters(bytes: [13]))
 .aesGCM(key: nil, nonce: nil)
 .aesGCM(key: ObfuscatedKey(bytes: [1, 2, ...]), nonce: ObfuscatedNonce(bytes: [...]))
 // ... all crypto methods with nil or explicit material
 ```
 
-#### `ObfuscatedMacroError` (internal)
+### `ObfuscatedMacroError.swift`
 
-Compile-time diagnostics for malformed macro use. See error messages in `description`.
+Compile-time diagnostics for malformed macro use.
 
-#### `MacroExpansionBuilder` (internal)
+### `MacroExpansionBuilder.swift`
 
-1. `ObfuscationPipeline.encode(string, methods:)` at compile time
-2. Serializes `EncodedPayload` into Swift source:
+1. `ObfuscationMacroConfiguration.ensureRegistered()` (custom steps)
+2. `ObfuscationPipeline.encode(string, methods:)` at compile time
+3. Serializes `EncodedPayload` into Swift source:
    - `bytes: [UInt8]` literal
    - `methods: [...]` literal (reconstructed method syntax)
-   - `material: CryptoMaterial(entries: [...])` with full `CryptoEntry` literals
+   - `material: CryptoMaterial(entries: [...], customEntries: [...])`
 
-#### `ObfuscatedMacro` — `ExpressionMacro`
+### `ObfuscatedMacro.swift`
 
-Parses `#Obfuscated("...", methods: [...])` → returns `ObfuscatedRuntime._decode(...)` expression.
+`ExpressionMacro` implementation: parses `#Obfuscated("...", methods: [...])` → returns `ObfuscatedRuntime._decode(...)` expression.
+
+---
+
+## Default macro plugin (`ObfuscatedMacros`)
+
+Thin compiler plugin entry point. Delegates expansion to `ObfuscatedMacroSupport`.
+
+### `ObfuscatedPlugin.swift`
+
+```swift
+@main
+struct ObfuscatedPlugin: CompilerPlugin {
+    init() {
+        ObfuscationMacroConfiguration.configure {
+            // Built-in plugin: no custom steps registered by default.
+        }
+    }
+
+    let providingMacros: [Macro.Type] = [
+        ObfuscatedMacro.self,
+    ]
+}
+```
+
+---
+
+## Custom obfuscation steps
+
+Built-in methods live on `ObfuscationMethod`. User-defined transforms use `.custom(id:parameters:)` and conform to `ObfuscationStep`.
+
+**Why a separate plugin target?** Macro expansion runs in a compiler plugin process that cannot import your app module. Custom step types must live in a library linked into a **user-owned macro target**, registered via `ObfuscationMacroConfiguration.configure`.
+
+**Setup outline:**
+
+1. Define steps conforming to `ObfuscationStep` (e.g. `DemoRot13Step`).
+2. Create a `.macro` target depending on `ObfuscatedMacroSupport` and your steps library.
+3. In the plugin `init`, register steps: `ObfuscationStepRegistry.register(MyStep.self)`.
+4. Point `#Obfuscated` at your plugin with `#externalMacro(module: "YourMacros", type: "ObfuscatedMacro")`.
+5. Register the same steps at app launch if runtime decode needs the registry (demo does this in `ObfuscatedDemoApp.init()`).
+
+Full walkthrough: [CUSTOM_OBFUSCATION_STEPS.md](CUSTOM_OBFUSCATION_STEPS.md). Working example: `Demo/ObfuscatedDemoSupport/`.
 
 ---
 
@@ -378,6 +442,12 @@ Parses `#Obfuscated("...", methods: [...])` → returns `ObfuscatedRuntime._deco
 | `.bitShift(by:)` | `Int` 1…7 | Rotate each byte left |
 | `.bitOr(mask:)` | `UInt8` | OR mask into bytes; bits must be clear in plaintext |
 | `.base64` | — | Base64-encode bytes as ASCII |
+
+### Custom
+
+| Method | Parameters | Notes |
+|--------|------------|-------|
+| `.custom(id:parameters:)` | `String` id, `ObfuscationParameters` | Dispatches to registered `ObfuscationStep`; requires user-owned macro plugin |
 
 ### CryptoKit AEAD
 
@@ -420,6 +490,7 @@ After macro expansion, the compiled binary contains:
 1. **`bytes`** — obfuscated byte array (not the original UTF-8 string)
 2. **`methods`** — array of method descriptors (for decode routing)
 3. **`material.entries`** — per-crypto-step masked keys, salts, and auxiliary data
+4. **`material.customEntries`** — per-custom-step persisted payload (if any)
 
 Plaintext string literals are **not** stored as contiguous UTF-8 in the binary (unless a lightweight-only pipeline happens to produce identical bytes, which is uncommon).
 
@@ -448,6 +519,7 @@ String (UTF-8)
     ▼ encode (forward)
 ┌───────────────────────────────────────┐
 │  xor → bitShift → bitOr → base64      │  lightweight (in-place on bytes)
+│  custom (ObfuscationStep)             │  custom (append CustomMaterialEntry)
 │  aesGCM → hmac → hkdf → ECIES → ...   │  crypto (append CryptoEntry each)
 └───────────────────────────────────────┘
     │
@@ -509,6 +581,7 @@ Direct use of `ObfuscationPipeline.decode` (e.g. in tests) propagates `Obfuscati
 | Suite | Coverage |
 |-------|----------|
 | `Obfuscation pipeline` | Round-trip for every method, pipelines, unicode, empty string, pairwise lightweight combos |
+| `Custom obfuscation steps` | ROT13 round-trip, unknown step, invalid parameters |
 | Validation | Invalid shift, key sizes, bitOr overlap |
 | `Obfuscated runtime` | `_decode` returns plain string |
 
@@ -519,22 +592,43 @@ Uses `CryptoKit` for generating test keys in ECIES round-trips.
 | Suite | Coverage |
 |-------|----------|
 | `Obfuscated macros` | XOR, pipeline, interpolation, hex literal expansion snapshots |
+| Custom step macros | Custom method expansion and round-trip (with `ObfuscatedTestSupport/MyRot13Step`) |
 | Crypto macros | Parse + round-trip + expansion shape (with `SecureRandom.useDeterministicValuesForTesting`) |
+
+Uses `ObfuscatedMacroSupport` directly (not the default plugin) so custom steps can be registered in tests.
 
 ---
 
-## Demo app
+## Demo app and support package
 
-`Demo/ObfuscatedDemo/` — Xcode project (not SPM target).
+### Demo app
+
+`Demo/ObfuscatedDemo/` — Xcode app (not an SPM target in the root package).
 
 | File | Role |
 |------|------|
-| `ObfuscatedDemoApp.swift` | `@main` SwiftUI app entry |
+| `ObfuscatedDemoApp.swift` | `@main` SwiftUI app entry; registers `DemoRot13Step` at launch for runtime decode |
 | `ContentView.swift` | List UI with macro source, decoded value, obfuscation stats |
-| `DemoSecrets.swift` | All `#Obfuscated` examples and `DemoCatalog` |
+| `DemoSecrets.swift` | All `#Obfuscated` examples and `DemoCatalog` (including custom ROT13) |
 | `Info.plist` | iOS scene manifest + launch screen |
 
-Links the local `Obfuscated` package at `../`. Builds for iOS and macOS.
+The Xcode project links the local package at `Demo/ObfuscatedDemoSupport/` — not the root `Obfuscated` package directly.
+
+### Demo support package
+
+`Demo/ObfuscatedDemoSupport/` — local SPM package depending on the root package (`path: "../.."`).
+
+| Target | Role |
+|--------|------|
+| `ObfuscatedDemoSteps` | `DemoRot13Step` — sample `ObfuscationStep` (`id: "rot13"`) |
+| `ObfuscatedDemoMacros` | Compiler plugin; registers `DemoRot13Step` in `ObfuscationMacroConfiguration.configure` |
+| `ObfuscatedDemoKit` | Public API for the demo app; `#Obfuscated` → `ObfuscatedDemoMacros` |
+
+**Product:** `ObfuscatedDemoKit` (imported by the demo app instead of `Obfuscated`).
+
+**Dependency chain:** `ObfuscatedDemoKit` → `ObfuscatedCore` + `ObfuscatedDemoMacros` + `ObfuscatedDemoSteps`; macros also depend on `ObfuscatedMacroSupport`.
+
+Builds for iOS and macOS alongside the demo app.
 
 ---
 
@@ -544,14 +638,21 @@ Links the local `Obfuscated` package at `../`. Builds for iOS and macOS.
 |------|--------|------------|---------|
 | `Obfuscated.swift` | Obfuscated | public | Macro declarations, type aliases |
 | `ObfuscationMethod.swift` | ObfuscatedCore | public types | Methods, material structs, errors, validation |
+| `ObfuscationStep.swift` | ObfuscatedCore | public types | Custom step protocol, registry, parameters |
 | `ObfuscationPipeline.swift` | ObfuscatedCore | public | `encode` / `decode` |
 | `CryptoMaterial.swift` | ObfuscatedCore | public types | Payload, entries, random, masking |
 | `ObfuscatedRuntime.swift` | ObfuscatedCore | public | `_decode` entry point |
 | `BitwiseObfuscator.swift` | ObfuscatedCore | internal | xor, bitOr, rotate |
 | `Base64Obfuscator.swift` | ObfuscatedCore | internal | Base64 encode/decode |
 | `CryptoObfuscator.swift` | ObfuscatedCore | internal | CryptoKit encrypt/decrypt |
-| `ObfuscatedPlugin.swift` | ObfuscatedMacros | plugin | Compiler plugin entry |
-| `ObfuscatedMacro.swift` | ObfuscatedMacros | macro types | Parser, builder, macro implementations |
+| `MacroSyntaxParser.swift` | ObfuscatedMacroSupport | internal | Macro argument parsing |
+| `MacroExpansionBuilder.swift` | ObfuscatedMacroSupport | internal | Encode + emit `_decode(...)` source |
+| `ObfuscatedMacro.swift` | ObfuscatedMacroSupport | macro types | `ExpressionMacro` implementation |
+| `ObfuscationMacroConfiguration.swift` | ObfuscatedMacroSupport | public | Custom step registration hook |
+| `ObfuscatedPlugin.swift` | ObfuscatedMacros | plugin | Default compiler plugin entry |
+| `DemoRot13Step.swift` | ObfuscatedDemoSteps | demo | Sample custom step (demo package) |
+| `ObfuscatedDemoKit.swift` | ObfuscatedDemoKit | demo | Demo `#Obfuscated` + typealiases (demo package) |
+| `ObfuscatedPlugin.swift` | ObfuscatedDemoMacros | demo plugin | Demo compiler plugin (demo package) |
 
 ---
 

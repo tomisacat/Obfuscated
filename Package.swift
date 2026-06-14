@@ -11,6 +11,14 @@ let package = Package(
             name: "Obfuscated",
             targets: ["Obfuscated"]
         ),
+        .library(
+            name: "ObfuscatedCore",
+            targets: ["ObfuscatedCore"]
+        ),
+        .library(
+            name: "ObfuscatedMacroSupport",
+            targets: ["ObfuscatedMacroSupport"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", .upToNextMajor(from: "603.0.2")),
@@ -20,11 +28,17 @@ let package = Package(
             name: "ObfuscatedCore",
             dependencies: []
         ),
-        .macro(
-            name: "ObfuscatedMacros",
+        .target(
+            name: "ObfuscatedMacroSupport",
             dependencies: [
                 "ObfuscatedCore",
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ]
+        ),
+        .macro(
+            name: "ObfuscatedMacros",
+            dependencies: [
+                "ObfuscatedMacroSupport",
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
@@ -34,15 +48,21 @@ let package = Package(
         ),
         .testTarget(
             name: "ObfuscatedCoreTests",
-            dependencies: ["ObfuscatedCore"]
+            dependencies: ["ObfuscatedCore", "ObfuscatedTestSupport"]
         ),
         .testTarget(
             name: "ObfuscatedTests",
             dependencies: [
                 "ObfuscatedCore",
-                "ObfuscatedMacros",
+                "ObfuscatedMacroSupport",
+                "ObfuscatedTestSupport",
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ]
+        ),
+        .target(
+            name: "ObfuscatedTestSupport",
+            dependencies: ["ObfuscatedCore"],
+            path: "Tests/ObfuscatedTestSupport"
         ),
     ]
 )

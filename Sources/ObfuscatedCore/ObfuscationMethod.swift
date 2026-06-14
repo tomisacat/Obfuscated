@@ -105,6 +105,9 @@ public enum ObfuscationMethod: Sendable, Equatable {
     case curve25519AESGCM(recipientPrivateKey: ObfuscatedKey?, nonce: ObfuscatedNonce?)
     /// P-256 ECDH + HKDF + AES-GCM (ECIES-style).
     case p256AESGCM(recipientPrivateKey: ObfuscatedKey?, nonce: ObfuscatedNonce?)
+
+    /// User-defined step registered via ``ObfuscationStepRegistry``.
+    case custom(id: String, parameters: ObfuscationParameters)
 }
 
 /// Errors thrown by ``ObfuscationPipeline`` during encode or decode.
@@ -133,6 +136,10 @@ public enum ObfuscationError: Error, Equatable, Sendable {
     case cryptoUnavailable
     /// A general encode/decode failure with a descriptive message.
     case decodingFailed(String)
+    /// No registered ``ObfuscationStep`` matches the custom method identifier.
+    case unknownCustomStep(String)
+    /// Decode expected custom material but the stack was empty.
+    case missingCustomMaterial
 }
 
 extension ObfuscationMethod {
@@ -172,6 +179,11 @@ extension ObfuscationMethod {
         case .p256AESGCM(let privateKey, let nonce):
             try validateP256PrivateKey(privateKey)
             try validateAESNonce(nonce)
+        case .custom(let id, let parameters):
+            guard let step = ObfuscationStepRegistry.step(for: id) else {
+                throw ObfuscationError.unknownCustomStep(id)
+            }
+            try step.validate(parameters: parameters)
         }
     }
 

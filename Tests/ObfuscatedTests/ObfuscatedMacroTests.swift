@@ -1,12 +1,10 @@
 @testable import ObfuscatedCore
+import ObfuscatedMacroSupport
+import ObfuscatedTestSupport
 import SwiftSyntax
 import SwiftSyntaxMacros
 import SwiftSyntaxMacrosTestSupport
 import Testing
-
-#if canImport(ObfuscatedMacros)
-@testable import ObfuscatedMacros
-import ObfuscatedMacros
 
 private let testMacros: [String: Macro.Type] = [
     "Obfuscated": ObfuscatedMacro.self,
@@ -15,6 +13,16 @@ private let testMacros: [String: Macro.Type] = [
 private func withDeterministicRandom(_ body: () throws -> Void) rethrows {
     SecureRandom.useDeterministicValuesForTesting = true
     defer { SecureRandom.useDeterministicValuesForTesting = false }
+    try body()
+}
+
+private func withRegisteredCustomSteps(_ body: () throws -> Void) rethrows {
+    ObfuscationStepRegistry.reset()
+    ObfuscationStepRegistry.register(MyRot13Step.self)
+    ObfuscationMacroConfiguration.configure {
+        ObfuscationStepRegistry.register(MyRot13Step.self)
+    }
+    defer { ObfuscationStepRegistry.reset() }
     try body()
 }
 
@@ -186,5 +194,27 @@ struct ObfuscatedMacroTests {
         let payload = try ObfuscationPipeline.encode("PlaintextValue", methods: [.xor(key: 1)])
         #expect(payload.bytes != Array("PlaintextValue".utf8))
     }
+
+    @Test func customStepMacroExpansion() throws {
+        try withRegisteredCustomSteps {
+            let methods: [ObfuscationMethod] = [
+                .custom(id: MyRot13Step.id, parameters: ObfuscationParameters(bytes: [13])),
+            ]
+            let expanded = try MacroExpansionBuilder.decodeExpression(string: "Custom secret", methods: methods)
+            #expect(expanded.description.contains("ObfuscatedRuntime._decode"))
+            #expect(expanded.description.contains("rot13"))
+            #expect(expanded.description.contains("ObfuscationParameters"))
+            #expect(expanded.description.contains("CryptoMaterial(entries: [])"))
+        }
+    }
+
+    @Test func customStepMacroRoundTrip() throws {
+        try withRegisteredCustomSteps {
+            let methods: [ObfuscationMethod] = [
+                .custom(id: MyRot13Step.id, parameters: ObfuscationParameters(bytes: [13])),
+            ]
+            let payload = try ObfuscationPipeline.encode("Macro custom", methods: methods)
+            #expect(try ObfuscationPipeline.decode(payload, methods: methods) == "Macro custom")
+        }
+    }
 }
-#endif

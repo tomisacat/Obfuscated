@@ -1,5 +1,5 @@
 import Foundation
-import Obfuscated
+import ObfuscatedDemoKit
 
 private enum DemoMaterial {
     static let aesKey = ObfuscatedKey(bytes: Array(repeating: 0xAB, count: 16))
@@ -88,6 +88,11 @@ enum DemoSecrets {
     static let hkdfPipelineSecret = #Obfuscated(
         "Pipeline: HKDF -> xor",
         methods: [.hkdfChaChaPoly(inputKey: nil, salt: nil, info: nil, nonce: nil), .xor(key: 0x55)]
+    )
+
+    static let rot13Secret = #Obfuscated(
+        "Custom ROT13 protected secret",
+        methods: [.custom(id: "rot13", parameters: ObfuscationParameters(bytes: [13]))]
     )
 }
 
@@ -314,6 +319,17 @@ enum DemoCatalog {
             plaintext: "P256 with explicit recipient key",
             value: DemoSecrets.explicitP256Secret,
             methods: [.p256AESGCM(recipientPrivateKey: DemoMaterial.p256Recipient, nonce: nil)]
+        ),
+    ]
+
+    static let customStepExamples: [DemoExample] = [
+        example(
+            title: "Custom ROT13",
+            macroSource: #"#Obfuscated("Custom ROT13 protected secret", methods: [.custom(id: "rot13", parameters: ObfuscationParameters(bytes: [13]))])"#,
+            plaintext: "Custom ROT13 protected secret",
+            value: DemoSecrets.rot13Secret,
+            methods: [.custom(id: "rot13", parameters: ObfuscationParameters(bytes: [13]))],
+            note: "User-defined ObfuscationStep registered in the demo macro plugin."
         ),
     ]
 

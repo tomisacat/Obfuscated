@@ -16,6 +16,12 @@ public typealias ObfuscatedNonce = ObfuscatedCore.ObfuscatedNonce
 public typealias ObfuscatedSalt = ObfuscatedCore.ObfuscatedSalt
 /// Re-exported HKDF info wrapper from ``ObfuscatedCore``.
 public typealias ObfuscatedInfo = ObfuscatedCore.ObfuscatedInfo
+/// Re-exported custom step parameters from ``ObfuscatedCore``.
+public typealias ObfuscationParameters = ObfuscatedCore.ObfuscationParameters
+/// Re-exported custom step protocol from ``ObfuscatedCore``.
+public typealias ObfuscationStep = ObfuscatedCore.ObfuscationStep
+/// Re-exported custom step registry from ``ObfuscatedCore``.
+public typealias ObfuscationStepRegistry = ObfuscatedCore.ObfuscationStepRegistry
 
 /// Obfuscates a string literal at compile time and returns a normal `String` at runtime.
 ///

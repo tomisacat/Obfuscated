@@ -84,12 +84,17 @@ public struct CryptoEntry: Sendable, Equatable {
 public struct CryptoMaterial: Sendable, Equatable {
     /// Crypto entries appended in encode order and popped in reverse during decode.
     public var entries: [CryptoEntry]
+    /// Custom step entries appended in encode order and popped in reverse during decode.
+    public var customEntries: [CustomMaterialEntry]
 
     /// Creates crypto material, optionally seeded with existing entries.
     ///
-    /// - Parameter entries: Initial entry stack (empty for lightweight-only pipelines).
-    public init(entries: [CryptoEntry] = []) {
+    /// - Parameters:
+    ///   - entries: Initial crypto entry stack (empty for lightweight-only pipelines).
+    ///   - customEntries: Initial custom step material stack.
+    public init(entries: [CryptoEntry] = [], customEntries: [CustomMaterialEntry] = []) {
         self.entries = entries
+        self.customEntries = customEntries
     }
 }
 

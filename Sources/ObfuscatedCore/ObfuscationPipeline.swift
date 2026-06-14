@@ -43,6 +43,15 @@ public enum ObfuscationPipeline {
                 let result = try CryptoObfuscator.encrypt(payload.bytes, method: method)
                 payload.bytes = result.payload
                 payload.material.entries.append(result.entry)
+            case .custom(let id, let parameters):
+                guard let step = ObfuscationStepRegistry.step(for: id) else {
+                    throw ObfuscationError.unknownCustomStep(id)
+                }
+                payload.bytes = try step.encode(
+                    bytes: payload.bytes,
+                    parameters: parameters,
+                    material: &payload.material
+                )
             }
         }
 
@@ -79,6 +88,15 @@ public enum ObfuscationPipeline {
                     throw ObfuscationError.missingCryptoMaterial(cryptoMaterialLabel(for: method))
                 }
                 bytes = try CryptoObfuscator.decrypt(bytes, entry: entry)
+            case .custom(let id, let parameters):
+                guard let step = ObfuscationStepRegistry.step(for: id) else {
+                    throw ObfuscationError.unknownCustomStep(id)
+                }
+                bytes = try step.decode(
+                    bytes: bytes,
+                    parameters: parameters,
+                    material: &material
+                )
             }
         }
 

@@ -11,7 +11,7 @@
 		AA0000010000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000002 /* ContentView.swift */; };
 		AA0000010000000000000003 /* DemoSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000003 /* DemoSecrets.swift */; };
 		AA0000010000000000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000004 /* Assets.xcassets */; };
-		AA0000010000000000000005 /* Obfuscated in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000080000000000000001 /* Obfuscated */; };
+		AA0000010000000000000005 /* ObfuscatedDemoKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000080000000000000001 /* ObfuscatedDemoKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -80,7 +80,7 @@
 			);
 			name = ObfuscatedDemo;
 			packageProductDependencies = (
-				AA0000080000000000000001 /* Obfuscated */,
+				AA0000080000000000000001 /* ObfuscatedDemoKit */,
 			);
 			productName = ObfuscatedDemo;
 			productReference = AA0000030000000000000001 /* ObfuscatedDemo.app */;
@@ -106,7 +106,7 @@
 			);
 			mainGroup = AA0000050000000000000001;
 			packageReferences = (
-				AA0000080000000000000002 /* XCLocalSwiftPackageReference ".." */,
+				AA0000080000000000000003 /* XCLocalSwiftPackageReference "ObfuscatedDemoSupport" */,
 			);
 			productRefGroup = AA0000050000000000000003 /* Products */;
 			projectDirPath = "";
@@ -264,17 +264,17 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AA0000080000000000000002 /* XCLocalSwiftPackageReference ".." */ = {
+		AA0000080000000000000003 /* XCLocalSwiftPackageReference "ObfuscatedDemoSupport" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ..;
+			relativePath = ObfuscatedDemoSupport;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AA0000080000000000000001 /* Obfuscated */ = {
+		AA0000080000000000000001 /* ObfuscatedDemoKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA0000080000000000000002 /* XCLocalSwiftPackageReference ".." */;
-			productName = Obfuscated;
+			package = AA0000080000000000000003 /* XCLocalSwiftPackageReference "ObfuscatedDemoSupport" */;
+			productName = ObfuscatedDemoKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
