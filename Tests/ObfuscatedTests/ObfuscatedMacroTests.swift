@@ -217,4 +217,53 @@ struct ObfuscatedMacroTests {
             #expect(try ObfuscationPipeline.decode(payload, methods: methods) == "Macro custom")
         }
     }
+
+    @Test func intMacroExpansion() throws {
+        let methods: [ObfuscationMethod] = [.xor(key: 0x5A)]
+        let expanded = try MacroExpansionBuilder.decodeExpression(value: 443, methods: methods, as: Int.self)
+
+        assertMacroExpansion(
+            """
+            #Obfuscated(443, methods: [.xor(key: 0x5A)])
+            """,
+            expandedSource: expanded.description,
+            macros: testMacros
+        )
+        #expect(expanded.description.contains("as: Int.self"))
+    }
+
+    @Test func boolMacroExpansion() throws {
+        let methods: [ObfuscationMethod] = [.xor(key: 1)]
+        let expanded = try MacroExpansionBuilder.decodeExpression(value: true, methods: methods, as: Bool.self)
+        #expect(expanded.description.contains("as: Bool.self"))
+    }
+
+    @Test func dataMacroExpansion() throws {
+        let methods: [ObfuscationMethod] = [.xor(key: 0x33)]
+        let expanded = try MacroExpansionBuilder.decodeDataExpression(bytes: [0x01, 0x02], methods: methods)
+        #expect(expanded.description.contains("as: Data.self"))
+    }
+
+    @Test func enumCaseMacroExpansion() throws {
+        let methods: [ObfuscationMethod] = [.xor(key: 0x11)]
+        let expanded = try MacroExpansionBuilder.decodeEnumCaseExpression(
+            caseName: "production",
+            typeName: "Environment",
+            methods: methods
+        )
+        #expect(expanded.description.contains("_decodeCaseIterable"))
+        #expect(expanded.description.contains("caseName: \"production\""))
+        #expect(expanded.description.contains("as: Environment.self"))
+    }
+
+    @Test func rawRepresentableIntMacroExpansion() throws {
+        let methods: [ObfuscationMethod] = [.xor(key: 0x09)]
+        let expanded = try MacroExpansionBuilder.decodeRawRepresentableExpression(
+            rawValue: 1,
+            typeName: "Color.self",
+            methods: methods
+        )
+        #expect(expanded.description.contains("_decodeRawRepresentable"))
+        #expect(expanded.description.contains("as: Color.self"))
+    }
 }

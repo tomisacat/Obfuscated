@@ -9,11 +9,11 @@ For the full source reference (every type, file, and algorithm), see [DOCUMENTAT
 ```mermaid
 flowchart TB
     subgraph Consumer["Consumer app"]
-        SRC["Source code\n#Obfuscated(\"secret\", methods: [...])"]
+        SRC["Source code\n#Obfuscated(literal, methods: [...])"]
     end
 
     subgraph Product["Product: Obfuscated"]
-        API["Obfuscated.swift\n• #Obfuscated → ObfuscatedMacros\n• typealiases"]
+        API["Obfuscated.swift\n• #Obfuscated overloads → ObfuscatedMacros\n• typealiases + ObfuscatedValue"]
     end
 
     subgraph MacroSupport["ObfuscatedMacroSupport (library)"]
@@ -28,8 +28,9 @@ flowchart TB
     end
 
     subgraph Core["ObfuscatedCore"]
+        VALUE["ObfuscatedValue\n+ Enum / RawRepresentable helpers"]
         PIPE["ObfuscationPipeline"]
-        RUNTIME["ObfuscatedRuntime._decode"]
+        RUNTIME["ObfuscatedRuntime._decode*"]
         METHODS["ObfuscationMethod\nObfuscationStep / Registry"]
         MAT["CryptoMaterial\nCryptoEntry + CustomMaterialEntry"]
         BIT["BitwiseObfuscator"]
@@ -49,7 +50,7 @@ flowchart TB
     PLUGIN --> EXPR
     EXPR --> PARSER --> BUILDER
     BUILDER --> PIPE
-    PIPE --> BIT & B64 & CRYPTO & METHODS
+    PIPE --> VALUE & BIT & B64 & CRYPTO & METHODS
     CRYPTO --> CK
     BUILDER --> RUNTIME
     API --> RUNTIME
@@ -74,33 +75,38 @@ sequenceDiagram
     participant Builder as MacroExpansionBuilder
     participant Binary as Compiled binary
 
-    Dev->>Compiler: #Obfuscated("Bearer \("apiKey")", methods: [.xor(0x5A), .aesGCM(...)])
+    Dev->>Compiler: #Obfuscated(literal, methods: [...])
     Compiler->>Macro: expand macro (plugin)
-    Macro->>Parser: fold static literal + parse methods array
-    Note over Parser: "Bearer " + "apiKey" → "Bearer apiKey"
-    Parser-->>Macro: folded String + [ObfuscationMethod]
-    Macro->>Pipeline: encode(foldedString, methods)
-    Note over Pipeline: Runs obfuscation chain at compile time
+    Macro->>Parser: detect literal kind + parse methods array
+    alt String with static interpolation
+        Note over Parser: fold segments → single string
+        Parser-->>Macro: String + [ObfuscationMethod]
+        Macro->>Pipeline: encode(string, methods)
+    else Int / Bool / Data / enum / raw value
+        Parser-->>Macro: typed literal + [ObfuscationMethod]
+        Macro->>Pipeline: encode(value, methods) or raw-value bytes
+    end
+    Note over Pipeline: Serialize → obfuscation chain at compile time
     Pipeline-->>Macro: EncodedPayload(bytes, material)
-    Macro->>Builder: decodeExpression(payload, methods)
-    Builder-->>Compiler: ObfuscatedRuntime._decode(bytes: [...], methods: [...], material: ...)
+    Macro->>Builder: typed decodeExpression(payload, methods)
+    Builder-->>Compiler: ObfuscatedRuntime._decode*(bytes: [...], methods: [...], material: ...)
     Compiler->>Binary: Embed byte arrays + crypto material<br/>Plaintext literal not stored
 ```
 
-**What lands in the binary:** obfuscated `[UInt8]` payload, method descriptors, and masked `CryptoMaterial` — not the original string.
+**What lands in the binary:** obfuscated `[UInt8]` payload, method descriptors, and masked `CryptoMaterial` — not the original serialized plaintext (string UTF-8, Int bytes, enum name, etc.).
 
 ## Runtime decode
 
 ```mermaid
 flowchart LR
     subgraph App["App runtime"]
-        CALL["ObfuscatedRuntime._decode(\n  bytes, methods, material)"]
-        DEC["ObfuscationPipeline.decode"]
-        STR["String"]
+        CALL["ObfuscatedRuntime._decode*\n(bytes, methods, material)"]
+        DEC["ObfuscationPipeline.decodeBytes\n+ deserialize"]
+        OUT["String | Int | Bool | Data | enum"]
     end
 
     CALL --> DEC
-    DEC --> STR
+    DEC --> OUT
 
     subgraph Reverse["Reverse method chain"]
         direction TB
@@ -114,13 +120,24 @@ flowchart LR
     DEC --> Reverse
 ```
 
-The app uses a normal `String`. Decode is hidden inside the macro expansion; callers never call `_decode` themselves.
+The app uses a normal typed value. Decode is hidden inside the macro expansion; callers never call `_decode*` themselves.
 
 ## Obfuscation pipeline
 
 ```mermaid
 flowchart TB
-    IN["UTF-8 plaintext"] --> ENC
+    VAL["ObfuscatedValue\n(or RawRepresentable raw value)"] --> SER
+
+    subgraph SER["serialize (per type)"]
+        S1["String → UTF-8"]
+        S2["Int → 8-byte Int64 BE"]
+        S3["Bool → 0/1"]
+        S4["Data → raw bytes"]
+        S5["enum: case name UTF-8\n(Type.case) or raw value (as:)"]
+    end
+
+    SER --> IN["Plaintext [UInt8]"]
+    IN --> ENC
 
     subgraph ENC["encode (forward)"]
         direction LR
@@ -145,16 +162,17 @@ flowchart TB
 
     OUT --> DEC
 
-    subgraph DEC["decode (reversed)"]
+    subgraph DEC["decode (reversed) + deserialize"]
         direction RL
         D3["CryptoObfuscator.decrypt"]
         D3b["ObfuscationStep.decode"]
         D2["base64 decode"]
         D1["xor / bitShift / bitOr"]
-        D3 --> D3b --> D2 --> D1
+        D0["ObfuscatedValue.value(fromPlaintextBytes:)"]
+        D3 --> D3b --> D2 --> D1 --> D0
     end
 
-    DEC --> UTF["UTF-8 String"]
+    DEC --> TYPED["Typed result"]
 ```
 
 ## Crypto layer detail
@@ -249,8 +267,8 @@ The demo support package is **not** part of the published root package — it ex
 
 ```mermaid
 flowchart LR
-    CORE_T["ObfuscatedCoreTests\nround-trip pipeline\ncustom step tests"]
-    MACRO_T["ObfuscatedTests\nmacro parse + expansion\nsnapshot / smoke tests"]
+    CORE_T["ObfuscatedCoreTests\nround-trip pipeline\nObfuscatedValue tests\ncustom step tests"]
+    MACRO_T["ObfuscatedTests\nmacro parse + expansion\ntyped-value snapshots"]
     DEMO["ObfuscatedDemo\nSwiftUI catalog"]
     DEMO_SUP["ObfuscatedDemoSupport\nlocal package build"]
 
@@ -267,13 +285,14 @@ flowchart LR
 
 | Layer | Role |
 |--------|------|
-| **Obfuscated** | Public API surface; re-exports core types; default `#Obfuscated` → `ObfuscatedMacros` |
-| **ObfuscatedMacroSupport** | Shared macro parser, builder, `ObfuscatedMacro`, and registration hook |
+| **Obfuscated** | Public API surface; macro overloads for String, Int, Bool, Data, enums; re-exports core types |
+| **ObfuscatedValue** | Serialize/deserialize typed literals to bytes before/after the shared pipeline |
+| **ObfuscatedMacroSupport** | Shared macro parser, builder, `ObfuscatedMacro` (multi-type dispatch), registration hook |
 | **ObfuscatedMacros** | Default compiler plugin (built-in methods only) |
 | **ObfuscationStep** | Optional user-defined transforms via `.custom(id:parameters:)` |
-| **ObfuscationPipeline** | Shared encode/decode engine for macro + runtime |
+| **ObfuscationPipeline** | Shared byte-level encode/decode engine for macro + runtime |
 | **CryptoObfuscator** | CryptoKit-backed steps; keys stored masked in `CryptoMaterial` |
-| **ObfuscatedRuntime** | Thin runtime entry point embedded by macro expansions |
+| **ObfuscatedRuntime** | Thin runtime entry points (`_decode*`) embedded by macro expansions |
 | **ObfuscatedDemoSupport** | Demo-only local package showing custom plugin wiring |
 
-**Design principle:** obfuscation happens at **compile time**; runtime only **reverses** the embedded byte payload to return an ordinary `String`.
+**Design principle:** obfuscation happens at **compile time**; runtime only **reverses** the embedded byte payload and **deserializes** it to return an ordinary value (`String`, `Int`, `Bool`, `Data`, or enum).

@@ -8,20 +8,11 @@ import Foundation
 ///
 /// Used by the macro plugin at compile time and by ``ObfuscatedRuntime`` at runtime.
 public enum ObfuscationPipeline {
-    /// Encodes a plaintext string through the given obfuscation methods.
-    ///
-    /// - Parameters:
-    ///   - string: UTF-8 plaintext.
-    ///   - methods: Ordered list of transforms (see ``ObfuscationMethod``).
-    /// - Returns: Obfuscated bytes and any accumulated crypto material.
-    public static func encode(_ string: String, methods: [ObfuscationMethod]) throws -> EncodedPayload {
+    /// Encodes plaintext bytes through the given obfuscation methods.
+    public static func encode(bytes: [UInt8], methods: [ObfuscationMethod]) throws -> EncodedPayload {
         try methods.forEach { try $0.validate() }
 
-        guard let utf8 = string.data(using: .utf8) else {
-            throw ObfuscationError.decodingFailed("Unable to encode string as UTF-8")
-        }
-
-        var payload = EncodedPayload(bytes: Array(utf8))
+        var payload = EncodedPayload(bytes: bytes)
 
         for method in methods {
             switch method {
@@ -58,13 +49,20 @@ public enum ObfuscationPipeline {
         return payload
     }
 
-    /// Decodes an ``EncodedPayload`` by reversing the method chain.
-    ///
-    /// - Parameters:
-    ///   - payload: Obfuscated bytes and crypto material from encode (or macro expansion).
-    ///   - methods: Same method list used during encoding, in the same order.
-    /// - Returns: The original plaintext string.
-    public static func decode(_ payload: EncodedPayload, methods: [ObfuscationMethod]) throws -> String {
+    /// Encodes any ``ObfuscatedValue`` through the given obfuscation methods.
+    public static func encode<T: ObfuscatedValue>(_ value: T, methods: [ObfuscationMethod]) throws -> EncodedPayload {
+        let bytes = try T.plaintextBytes(from: value)
+        return try encode(bytes: bytes, methods: methods)
+    }
+
+    /// Encodes a plaintext string through the given obfuscation methods.
+    public static func encode(_ string: String, methods: [ObfuscationMethod]) throws -> EncodedPayload {
+        let bytes = try String.plaintextBytes(from: string)
+        return try encode(bytes: bytes, methods: methods)
+    }
+
+    /// Decodes obfuscated bytes by reversing the method chain.
+    public static func decodeBytes(_ payload: EncodedPayload, methods: [ObfuscationMethod]) throws -> [UInt8] {
         try methods.forEach { try $0.validate() }
 
         var bytes = payload.bytes
@@ -100,10 +98,41 @@ public enum ObfuscationPipeline {
             }
         }
 
-        guard let string = String(bytes: bytes, encoding: .utf8) else {
-            throw ObfuscationError.decodingFailed("Unable to decode bytes as UTF-8")
-        }
-        return string
+        return bytes
+    }
+
+    /// Decodes an ``EncodedPayload`` into any ``ObfuscatedValue`` type.
+    public static func decode<T: ObfuscatedValue>(
+        _ payload: EncodedPayload,
+        methods: [ObfuscationMethod],
+        as type: T.Type = T.self
+    ) throws -> T {
+        let bytes = try decodeBytes(payload, methods: methods)
+        return try T.value(fromPlaintextBytes: bytes)
+    }
+
+    /// Encodes a ``RawRepresentable`` value through the given obfuscation methods.
+    public static func encode<R: RawRepresentable>(
+        _ value: R,
+        methods: [ObfuscationMethod]
+    ) throws -> EncodedPayload where R.RawValue: ObfuscatedValue {
+        let bytes = try ObfuscatedRawRepresentableSupport.plaintextBytes(from: value)
+        return try encode(bytes: bytes, methods: methods)
+    }
+
+    /// Decodes an ``EncodedPayload`` into a ``RawRepresentable`` type.
+    public static func decode<R: RawRepresentable>(
+        _ payload: EncodedPayload,
+        methods: [ObfuscationMethod],
+        as type: R.Type
+    ) throws -> R where R.RawValue: ObfuscatedValue {
+        let bytes = try decodeBytes(payload, methods: methods)
+        return try ObfuscatedRawRepresentableSupport.value(fromPlaintextBytes: bytes, as: type)
+    }
+
+    /// Decodes an ``EncodedPayload`` by reversing the method chain.
+    public static func decode(_ payload: EncodedPayload, methods: [ObfuscationMethod]) throws -> String {
+        try decode(payload, methods: methods, as: String.self)
     }
 
     /// Returns a stable method name for ``ObfuscationError/missingCryptoMaterial(_:)`` diagnostics.

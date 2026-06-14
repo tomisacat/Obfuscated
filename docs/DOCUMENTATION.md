@@ -28,11 +28,11 @@ Complete reference for every module, type, and file in the package. For diagrams
 | Target | Visibility | Role |
 |--------|------------|------|
 | `Obfuscated` | **Public product** | Re-exports core types; declares `#Obfuscated` macro (default plugin) |
-| `ObfuscatedCore` | **Public product** | Obfuscation pipeline, CryptoKit integration, runtime decode, custom step protocol |
+| `ObfuscatedCore` | **Public product** | Obfuscation pipeline, `ObfuscatedValue`, CryptoKit integration, runtime decode, custom step protocol |
 | `ObfuscatedMacroSupport` | **Public product** | Shared macro parser, builder, `ObfuscatedMacro`, registration hook |
 | `ObfuscatedMacros` | Compiler plugin | Default plugin; built-in methods only |
-| `ObfuscatedCoreTests` | Tests | Round-trip and validation tests for the pipeline |
-| `ObfuscatedTests` | Tests | Macro parsing, expansion, and smoke tests |
+| `ObfuscatedCoreTests` | Tests | Round-trip pipeline, `ObfuscatedValue`, validation, custom step tests |
+| `ObfuscatedTests` | Tests | Macro parsing, expansion, typed-value and smoke tests |
 | `ObfuscatedTestSupport` | Test helper | Sample `MyRot13Step` for custom step tests |
 | `ObfuscatedDemo` | Demo app (Xcode) | SwiftUI catalog; not part of the root Swift package |
 | `ObfuscatedDemoSupport` | Demo local package | `ObfuscatedDemoKit` + custom macro plugin (`Demo/ObfuscatedDemoSupport/`) |
@@ -55,36 +55,86 @@ The only module consumers should `import`.
 
 Re-exports all public core types so `ObfuscationMethod`, `ObfuscatedKey`, etc. are available without a separate import.
 
-#### `#Obfuscated` — expression macro
+#### `#Obfuscated` — expression macro (overloads)
+
+All overloads share the same `methods:` argument. The macro inspects the **first argument** (and optional `as:`) to choose the payload type and return type.
+
+| Overload | First argument | Return type | Expansion |
+|----------|----------------|-------------|-----------|
+| String | String literal (static `\("...")` allowed) | `String` | `ObfuscatedRuntime._decode(bytes:methods:material:)` |
+| Int | Integer literal | `Int` | `ObfuscatedRuntime._decode(bytes:methods:material:, as: Int.self)` |
+| Bool | `true` / `false` | `Bool` | `ObfuscatedRuntime._decode(bytes:methods:material:, as: Bool.self)` |
+| Data | `[UInt8]` array literal | `Data` | `ObfuscatedRuntime._decode(bytes:methods:material:, as: Data.self)` |
+| Enum case | `Type.case` member reference | `Enum` | `ObfuscatedRuntime._decodeCaseIterable(bytes:methods:material:caseName:as:)` |
+| RawRepresentable (Int) | Integer literal + `as: Type.self` | `Enum` | `ObfuscatedRuntime._decodeRawRepresentable(bytes:methods:material:, as:)` |
+| RawRepresentable (String) | String literal + `as: Type.self` | `Enum` | `ObfuscatedRuntime._decodeRawRepresentable(bytes:methods:material:, as:)` |
+
+**Declarations:**
 
 ```swift
 @freestanding(expression)
-public macro Obfuscated(
-    _ string: String,
-    methods: [ObfuscationMethod]
-) -> String
+public macro Obfuscated(_ string: String, methods: [ObfuscationMethod]) -> String
+
+@freestanding(expression)
+public macro Obfuscated(_ value: Int, methods: [ObfuscationMethod]) -> Int
+
+@freestanding(expression)
+public macro Obfuscated(_ value: Bool, methods: [ObfuscationMethod]) -> Bool
+
+@freestanding(expression)
+public macro Obfuscated(_ bytes: [UInt8], methods: [ObfuscationMethod]) -> Data
+
+@freestanding(expression)
+public macro Obfuscated<Enum: CaseIterable & Sendable>(
+    _ enumCase: Enum, methods: [ObfuscationMethod]
+) -> Enum
+
+@freestanding(expression)
+public macro Obfuscated<Enum: RawRepresentable>(
+    _ rawValue: Int, as type: Enum.Type, methods: [ObfuscationMethod]
+) -> Enum
+
+@freestanding(expression)
+public macro Obfuscated<Enum: RawRepresentable>(
+    _ rawValue: String, as type: Enum.Type, methods: [ObfuscationMethod]
+) -> Enum
 ```
 
 | Argument | Requirement |
 |----------|---------------|
-| `string` | **String literal** (not a variable). `\(...)` is allowed only when each interpolation is a static string literal. |
+| Value | **Compile-time literal** — not a variable or runtime expression |
 | `methods` | Array literal of `ObfuscationMethod` cases |
+| `as:` | Metatype literal (e.g. `Role.self`) for `RawRepresentable` overloads only |
 
-**Expands to:** a single `ObfuscatedRuntime._decode(bytes:methods:material:)` call. Literal segments and static `\("...")` interpolations are folded into one plaintext string at compile time, then obfuscated together.
+**String-specific:** `\(...)` is allowed only when each interpolation is a static string literal. Literal segments are folded into one plaintext string at compile time, then obfuscated together.
 
-**Returns:** `String` — callers never decode manually.
+**Returns:** A normal value of the declared return type — callers never decode manually.
 
-**Static interpolation example:**
+**Examples:**
 
 ```swift
-let header = #Obfuscated("Bearer \("abc")", methods: [.xor(key: 0x5A)])
-// folds to "Bearer abc", then expands to one _decode(...) call
+let key = #Obfuscated("secret", methods: [.xor(key: 0x5A)])
+let port = #Obfuscated(443, methods: [.xor(key: 0x11)])
+let flag = #Obfuscated(true, methods: [.xor(key: 1)])
+let blob = #Obfuscated([0xDE, 0xAD], methods: [.xor(key: 0x5A)])
+let env = #Obfuscated(Environment.production, methods: [.xor(key: 0x3C)])
+let role = #Obfuscated("admin", as: Role.self, methods: [.xor(key: 0x2A)])
 ```
+
+**Enum semantics:**
+
+- `Type.case` obfuscates the **case name** as UTF-8 (same as obfuscating `"production"`). Runtime decode matches `String(describing:)` against `CaseIterable.allCases`. Requires `CaseIterable` and `Sendable` — including enums that also conform to `RawRepresentable`.
+- `as: Type.self` obfuscates the **raw value** bytes (`Int` → 8-byte big-endian `Int64`; `String` → UTF-8). Requires `RawRepresentable`. Use when you want the stored raw value hidden, not the case identifier string.
+- **Dual conformance:** if an enum is `CaseIterable` and `RawRepresentable`, both overloads are available. `#Obfuscated(Color.red, ...)` hides the name `"red"`; `#Obfuscated(1, as: Color.self, ...)` hides the integer `1`. Pick based on which representation should not appear in the binary.
+- Enums without `RawRepresentable` only support the `Type.case` overload.
+
+See [README — Limitations](../README.md#limitations).
 
 #### Type aliases
 
 | Alias | Underlying type |
 |-------|-----------------|
+| `ObfuscatedValue` | `ObfuscatedCore.ObfuscatedValue` |
 | `ObfuscationMethod` | `ObfuscatedCore.ObfuscationMethod` |
 | `ObfuscatedKey` | `ObfuscatedCore.ObfuscatedKey` |
 | `ObfuscatedNonce` | `ObfuscatedCore.ObfuscatedNonce` |
@@ -167,28 +217,90 @@ Custom obfuscation protocol and registry. See [Custom obfuscation steps](#custom
 
 ---
 
+---
+
+### `ObfuscatedValue.swift`
+
+Protocol and built-in conformances for types the macro can obfuscate. Every value is serialized to plaintext bytes before the shared pipeline runs; deserialization happens after `decodeBytes`.
+
+#### `ObfuscatedValue` protocol
+
+| Requirement | Purpose |
+|-------------|---------|
+| `plaintextBytes(from:)` | Serialize value → `[UInt8]` before encode |
+| `value(fromPlaintextBytes:)` | Deserialize `[UInt8]` → value after decode |
+
+#### Built-in conformances
+
+| Type | Plaintext encoding |
+|------|-------------------|
+| `String` | UTF-8 |
+| `Int` | 8-byte big-endian `Int64` |
+| `Bool` | 1 byte: `0` = false, `1` = true |
+| `Data` | Raw bytes (identity) |
+
+#### `ObfuscatedRawRepresentableSupport`
+
+Helper enum (not protocol conformance) for `RawRepresentable` types whose `RawValue` is an `ObfuscatedValue`:
+
+- `plaintextBytes(from:)` — serializes `value.rawValue`
+- `value(fromPlaintextBytes:as:)` — deserializes raw value, then `init(rawValue:)`
+
+---
+
+### `ObfuscatedEnumSupport.swift`
+
+| API | Role |
+|-----|------|
+| `caseNamed(_:in:)` | Finds a `CaseIterable` case where `String(describing:)` matches the decoded case name |
+
+Used by `ObfuscatedRuntime._decodeCaseIterable` after the pipeline returns the obfuscated case name string.
+
+---
+
 ### `ObfuscationPipeline.swift`
 
-Central encode/decode orchestrator.
+Central encode/decode orchestrator. All value types share the same byte-level pipeline after serialization.
 
-#### `encode(_:methods:) -> EncodedPayload`
+#### `encode(bytes:methods:) -> EncodedPayload`
 
 1. Validate all methods.
-2. Convert `String` → UTF-8 `[UInt8]`.
-3. Apply each method **in order** (forward):
-   - Lightweight → transform `payload.bytes` in place
+2. Apply each method **in order** (forward) on `payload.bytes`:
+   - Lightweight → transform bytes in place
    - `.custom` → look up `ObfuscationStep` in registry, call `encode`, optionally append `CustomMaterialEntry`
    - Crypto → `CryptoObfuscator.encrypt`, append `CryptoEntry` to `payload.material.entries`
-4. Return `EncodedPayload`.
+3. Return `EncodedPayload`.
+
+#### `encode<T: ObfuscatedValue>(_ value:methods:) -> EncodedPayload`
+
+1. `T.plaintextBytes(from: value)` → `[UInt8]`
+2. `encode(bytes:methods:)`
+
+Convenience: `encode(_ string:methods:)` delegates to `String.plaintextBytes`.
+
+#### `encode<R: RawRepresentable>(_ value:methods:)` (where `R.RawValue: ObfuscatedValue`)
+
+Serializes via `ObfuscatedRawRepresentableSupport.plaintextBytes`, then `encode(bytes:methods:)`.
+
+#### `decodeBytes(_:methods:) -> [UInt8]`
+
+1. Validate all methods.
+2. Apply each method **in reverse order** on bytes and material stacks (crypto pop, custom pop, lightweight inverse).
+3. Return plaintext bytes (not yet deserialized to a value type).
+
+#### `decode<T: ObfuscatedValue>(_:methods:as:) -> T`
+
+1. `decodeBytes` → plaintext bytes
+2. `T.value(fromPlaintextBytes:)` → typed value
+
+#### `decode<R: RawRepresentable>(_:methods:as:)` (where `R.RawValue: ObfuscatedValue`)
+
+1. `decodeBytes` → plaintext bytes
+2. `ObfuscatedRawRepresentableSupport.value(fromPlaintextBytes:as:)` → enum/struct
 
 #### `decode(_:methods:) -> String`
 
-1. Validate all methods.
-2. Apply each method **in reverse order**:
-   - Crypto → `popLast()` from `material.entries`, `CryptoObfuscator.decrypt`
-   - `.custom` → look up step, `popCustomEntry()`, call `decode`
-   - Lightweight → inverse transform
-3. Convert bytes → `String` (UTF-8).
+Convenience for `decode(..., as: String.self)`.
 
 **Invariant:** crypto and custom entries are pushed in encode order and popped in reverse decode order. Pipeline methods must match exactly between macro expansion and runtime.
 
@@ -323,17 +435,24 @@ Elliptic-curve integrated encryption:
 
 ### `ObfuscatedRuntime.swift`
 
-```swift
-public enum ObfuscatedRuntime {
-    public static func _decode(
-        bytes: [UInt8],
-        methods: [ObfuscationMethod],
-        material: CryptoMaterial
-    ) -> String
-}
-```
+Runtime decode entry points embedded by macro expansions. **Not for direct use.**
 
-**Not for direct use.** Embedded by macro expansions. On decode failure: `assertionFailure` in debug, returns `""` in release.
+| Method | Used for |
+|--------|----------|
+| `_decode(bytes:methods:material:)` | `String` (convenience) |
+| `_decode(bytes:methods:material:as:)` | Any `ObfuscatedValue` (`Int`, `Bool`, `Data`, …) |
+| `_decodeRawRepresentable(bytes:methods:material:as:)` | `RawRepresentable` with `ObfuscatedValue` raw value |
+| `_decodeCaseIterable(bytes:methods:material:caseName:as:)` | `CaseIterable` enum matched by case name |
+
+**Failure behavior:**
+
+| Type | Debug | Release |
+|------|-------|---------|
+| `ObfuscatedValue` | `assertionFailure`, then type-specific fallback (`""`, `0`, `false`, `Data()`) | Same fallbacks |
+| `RawRepresentable` | `assertionFailure`, then `fatalError` | `fatalError` |
+| `CaseIterable` enum | `assertionFailure`, then best-effort case match or `allCases.first!` | Same |
+
+Direct use of `ObfuscationPipeline.decode` (e.g. in tests) propagates `ObfuscationError` normally.
 
 ---
 
@@ -353,8 +472,12 @@ Parses Swift syntax from macro arguments into `ObfuscationMethod` values.
 |--------|--------|
 | `foldedStaticString(from:)` | Folds a literal and static `\("...")` segments into one string |
 | `stringLiteral(from:)` | Alias for `foldedStaticString(from:)` |
+| `int(from:)` | Integer literal (decimal, hex, octal, binary) |
+| `bool(from:)` | `true` / `false` boolean literal |
 | `uint8(from:)` | Integer literal 0…255 (decimal, hex `0x`, octal `0o`, binary `0b`) |
 | `byteArray(from:)` | `[UInt8]` array literal |
+| `typeName(from:)` | Metatype in `as:` argument (e.g. `Role.self` → `"Role"`) |
+| `enumCaseReference(from:)` | `Type.case` member reference → `(typeName, caseName)` |
 | `parseMethods(from:)` | `[ObfuscationMethod]` array literal |
 | `parseMethod(from:)` | Single method call like `.xor(key: 0x5A)` or `.custom(id: "rot13", parameters: ...)` |
 
@@ -379,15 +502,26 @@ Compile-time diagnostics for malformed macro use.
 ### `MacroExpansionBuilder.swift`
 
 1. `ObfuscationMacroConfiguration.ensureRegistered()` (custom steps)
-2. `ObfuscationPipeline.encode(string, methods:)` at compile time
+2. `ObfuscationPipeline.encode` at compile time (value- or bytes-based)
 3. Serializes `EncodedPayload` into Swift source:
    - `bytes: [UInt8]` literal
    - `methods: [...]` literal (reconstructed method syntax)
    - `material: CryptoMaterial(entries: [...], customEntries: [...])`
+4. Emits the appropriate `ObfuscatedRuntime._decode*` call for the payload type
+
+Typed builders: `decodeStringExpression`, `decodeTypedExpression`, `decodeDataExpression`, `decodeRawRepresentableExpression`, `decodeEnumCaseExpression`.
 
 ### `ObfuscatedMacro.swift`
 
-`ExpressionMacro` implementation: parses `#Obfuscated("...", methods: [...])` → returns `ObfuscatedRuntime._decode(...)` expression.
+`ExpressionMacro` implementation. Dispatch order in `expansion(of:in:)`:
+
+1. If `as:` present → `RawRepresentable` (Int or String raw value literal)
+2. Else if folded static string → `String`
+3. Else if integer literal → `Int`
+4. Else if boolean literal → `Bool`
+5. Else if byte array literal → `Data`
+6. Else if `Type.case` reference → `CaseIterable` enum
+7. Else → `missingValueLiteral` or `nonStaticStringInterpolation`
 
 ---
 
@@ -487,12 +621,12 @@ Full walkthrough: [CUSTOM_OBFUSCATION_STEPS.md](CUSTOM_OBFUSCATION_STEPS.md). Wo
 
 After macro expansion, the compiled binary contains:
 
-1. **`bytes`** — obfuscated byte array (not the original UTF-8 string)
+1. **`bytes`** — obfuscated byte array (not the original plaintext serialization)
 2. **`methods`** — array of method descriptors (for decode routing)
 3. **`material.entries`** — per-crypto-step masked keys, salts, and auxiliary data
 4. **`material.customEntries`** — per-custom-step persisted payload (if any)
 
-Plaintext string literals are **not** stored as contiguous UTF-8 in the binary (unless a lightweight-only pipeline happens to produce identical bytes, which is uncommon).
+Plaintext literals are **not** stored as their natural serialized form in the binary (unless a lightweight-only pipeline happens to produce identical bytes, which is uncommon).
 
 ### Masking scheme
 
@@ -514,7 +648,10 @@ Each sensitive byte array in a `CryptoEntry` is XOR'd with a single random `UInt
 ## Encode/decode pipeline
 
 ```
-String (UTF-8)
+ObfuscatedValue (or raw bytes)
+    │
+    ▼ serialize (per-type)
+Plaintext [UInt8]
     │
     ▼ encode (forward)
 ┌───────────────────────────────────────┐
@@ -527,13 +664,24 @@ String (UTF-8)
 EncodedPayload { bytes, material }
     │
     ▼ embedded by macro
-ObfuscatedRuntime._decode(bytes, methods, material)
+ObfuscatedRuntime._decode* (type-specific)
     │
-    ▼ decode (reverse)
-String (UTF-8)
+    ▼ decode (reverse) → deserialize
+Typed value (String, Int, Bool, Data, enum, …)
 ```
 
-**Chaining example:**
+**Value serialization (before pipeline):**
+
+| Source | Plaintext bytes |
+|--------|-----------------|
+| `String` | UTF-8 |
+| `Int` | 8-byte big-endian `Int64` |
+| `Bool` | `[0]` or `[1]` |
+| `Data` / `[UInt8]` literal | Raw bytes |
+| `Type.case` | Case name as UTF-8 string. Any `CaseIterable` enum — including `RawRepresentable` enums |
+| `as: RawRepresentable` | Raw value bytes per `RawValue` type. Alternative when the enum is `RawRepresentable`; both forms may be available |
+
+**Chaining example (string):**
 
 ```swift
 #Obfuscated("secret", methods: [.xor(key: 0x11), .aesGCM(key: nil, nonce: nil), .base64])
@@ -543,6 +691,16 @@ Encode order: UTF-8 → XOR → AES-GCM (push entry) → Base64 ASCII bytes.
 
 Decode order: Base64 decode → AES-GCM decrypt (pop entry) → XOR → UTF-8 string.
 
+**Typed example (Int):**
+
+```swift
+#Obfuscated(443, methods: [.xor(key: 0x11)])
+```
+
+Encode order: `Int64(443)` big-endian bytes → XOR → obfuscated payload embedded in binary.
+
+Decode order: XOR → 8-byte `Int64` → `Int(443)`.
+
 ---
 
 ## Errors
@@ -551,10 +709,14 @@ Decode order: Base64 decode → AES-GCM decrypt (pop entry) → XOR → UTF-8 st
 
 Thrown as Swift compiler diagnostics via `ObfuscatedMacroError`:
 
-- Non-literal string
+- `missingValueLiteral` — not a supported compile-time literal
+- `missingStringLiteral` — string overload given non-literal
+- `nonStaticStringInterpolation` — runtime `\(...)` in string literal
+- `invalidTypeExpression` — `as:` is not a metatype like `Role.self`
 - Missing `methods:` argument
 - Unrecognized method name
 - Missing required argument labels
+- `encodingFailed` — pipeline validation or transform failure during expansion
 
 ### Encode-time (macro plugin running pipeline)
 
@@ -565,10 +727,7 @@ Thrown during `ObfuscationPipeline.encode` inside the plugin:
 
 ### Runtime (decode)
 
-`ObfuscatedRuntime._decode` catches all errors:
-
-- **Debug:** `assertionFailure` with error description
-- **Release:** returns empty string `""`
+`ObfuscatedRuntime` catches errors per decode path — see [ObfuscatedRuntime](#obfuscatedruntimeswift). Typed `ObfuscatedValue` decode uses safe fallbacks in release; `RawRepresentable` and enum mismatches are stricter.
 
 Direct use of `ObfuscationPipeline.decode` (e.g. in tests) propagates `ObfuscationError` normally.
 
@@ -581,9 +740,10 @@ Direct use of `ObfuscationPipeline.decode` (e.g. in tests) propagates `Obfuscati
 | Suite | Coverage |
 |-------|----------|
 | `Obfuscation pipeline` | Round-trip for every method, pipelines, unicode, empty string, pairwise lightweight combos |
+| `ObfuscatedValue` | String/Int/Bool/Data serialization, round-trip through pipeline |
 | `Custom obfuscation steps` | ROT13 round-trip, unknown step, invalid parameters |
 | Validation | Invalid shift, key sizes, bitOr overlap |
-| `Obfuscated runtime` | `_decode` returns plain string |
+| `Obfuscated runtime` | `_decode` returns plain string and typed values |
 
 Uses `CryptoKit` for generating test keys in ECIES round-trips.
 
@@ -592,6 +752,7 @@ Uses `CryptoKit` for generating test keys in ECIES round-trips.
 | Suite | Coverage |
 |-------|----------|
 | `Obfuscated macros` | XOR, pipeline, interpolation, hex literal expansion snapshots |
+| Typed macros | Int, Bool, Data, enum case, RawRepresentable expansion shapes |
 | Custom step macros | Custom method expansion and round-trip (with `ObfuscatedTestSupport/MyRot13Step`) |
 | Crypto macros | Parse + round-trip + expansion shape (with `SecureRandom.useDeterministicValuesForTesting`) |
 
@@ -608,8 +769,8 @@ Uses `ObfuscatedMacroSupport` directly (not the default plugin) so custom steps 
 | File | Role |
 |------|------|
 | `ObfuscatedDemoApp.swift` | `@main` SwiftUI app entry; registers `DemoRot13Step` at launch for runtime decode |
-| `ContentView.swift` | List UI with macro source, decoded value, obfuscation stats |
-| `DemoSecrets.swift` | All `#Obfuscated` examples and `DemoCatalog` (including custom ROT13) |
+| `ContentView.swift` | List UI with macro source, decoded value, obfuscation stats; includes **Typed Values** section |
+| `DemoSecrets.swift` | All `#Obfuscated` examples and `DemoCatalog` (strings, typed values, custom ROT13) |
 | `Info.plist` | iOS scene manifest + launch screen |
 
 The Xcode project links the local package at `Demo/ObfuscatedDemoSupport/` — not the root `Obfuscated` package directly.
@@ -636,12 +797,14 @@ Builds for iOS and macOS alongside the demo app.
 
 | File | Module | Visibility | Summary |
 |------|--------|------------|---------|
-| `Obfuscated.swift` | Obfuscated | public | Macro declarations, type aliases |
+| `Obfuscated.swift` | Obfuscated | public | Macro overload declarations, type aliases |
+| `ObfuscatedValue.swift` | ObfuscatedCore | public types | `ObfuscatedValue` protocol, built-in conformances, raw-value helper |
+| `ObfuscatedEnumSupport.swift` | ObfuscatedCore | public | `CaseIterable` case lookup by name |
 | `ObfuscationMethod.swift` | ObfuscatedCore | public types | Methods, material structs, errors, validation |
 | `ObfuscationStep.swift` | ObfuscatedCore | public types | Custom step protocol, registry, parameters |
 | `ObfuscationPipeline.swift` | ObfuscatedCore | public | `encode` / `decode` |
 | `CryptoMaterial.swift` | ObfuscatedCore | public types | Payload, entries, random, masking |
-| `ObfuscatedRuntime.swift` | ObfuscatedCore | public | `_decode` entry point |
+| `ObfuscatedRuntime.swift` | ObfuscatedCore | public | `_decode*` entry points (String, ObfuscatedValue, enum, RawRepresentable) |
 | `BitwiseObfuscator.swift` | ObfuscatedCore | internal | xor, bitOr, rotate |
 | `Base64Obfuscator.swift` | ObfuscatedCore | internal | Base64 encode/decode |
 | `CryptoObfuscator.swift` | ObfuscatedCore | internal | CryptoKit encrypt/decrypt |
@@ -658,11 +821,12 @@ Builds for iOS and macOS alongside the demo app.
 
 ## Security notes
 
-This package **obfuscates** string literals in compiled binaries. It does **not**:
+This package **obfuscates compile-time literals** in compiled binaries. It does **not**:
 
 - Prevent determined reverse engineering
 - Encrypt runtime memory
 - Hide keys from a debugger attached to a running process
 - Replace proper secret management (Keychain, server-side secrets)
+- Obfuscate runtime variables or associated-value enum payloads
 
-Crypto methods add significant protection over plain UTF-8, but the decode logic and material are present in the binary. Treat as deterrence, not a vault.
+Crypto methods add significant protection over plain serialized bytes, but the decode logic and material are present in the binary. Treat as deterrence, not a vault.

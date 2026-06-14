@@ -65,6 +65,39 @@ public enum MacroSyntaxParser {
         return parseIntegerLiteral(text)
     }
 
+    /// Parses a boolean literal expression.
+    public static func bool(from expression: ExprSyntax) -> Bool? {
+        if expression.is(BooleanLiteralExprSyntax.self) {
+            return expression.as(BooleanLiteralExprSyntax.self)?.literal.text == "true"
+        }
+        return nil
+    }
+
+    /// Parses a `Type.self` metatype expression.
+    public static func typeName(from expression: ExprSyntax) -> String? {
+        guard let member = expression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "self",
+              let base = member.base?.as(DeclReferenceExprSyntax.self)
+        else {
+            return nil
+        }
+        return base.baseName.text
+    }
+
+    /// Parses an enum case reference such as `Environment.production`.
+    public static func enumCaseReference(from expression: ExprSyntax) -> (typeName: String, caseName: String)? {
+        guard let member = expression.as(MemberAccessExprSyntax.self),
+              let typeName = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text
+        else {
+            return nil
+        }
+        let caseName = member.declName.baseName.text
+        guard !caseName.isEmpty, !typeName.isEmpty else {
+            return nil
+        }
+        return (typeName, caseName)
+    }
+
     /// Parses an array literal of `UInt8` integer literals.
     public static func byteArray(from expression: ExprSyntax?) -> [UInt8]? {
         guard let expression,

@@ -22,6 +22,37 @@ private enum DemoMaterial {
     ])
 }
 
+private enum DemoEnvironment: CaseIterable, Sendable, CustomStringConvertible {
+    case production
+    case staging
+
+    var description: String {
+        switch self {
+        case .production: "production"
+        case .staging: "staging"
+        }
+    }
+}
+
+private enum DemoRole: String, CustomStringConvertible {
+    case admin
+    case guest
+
+    var description: String { rawValue }
+}
+
+private enum DemoColor: Int, CustomStringConvertible {
+    case red = 1
+    case blue = 2
+
+    var description: String {
+        switch self {
+        case .red: "red"
+        case .blue: "blue"
+        }
+    }
+}
+
 enum DemoSecrets {
     static let xorSecret = #Obfuscated("XOR protected secret", methods: [.xor(key: 0x5A)])
     static let shiftSecret = #Obfuscated("Bit-shift protected secret", methods: [.bitShift(by: 3)])
@@ -94,6 +125,13 @@ enum DemoSecrets {
         "Custom ROT13 protected secret",
         methods: [.custom(id: "rot13", parameters: ObfuscationParameters(bytes: [13]))]
     )
+
+    static let portNumber = #Obfuscated(443, methods: [.xor(key: 0x11)])
+    static let featureEnabled = #Obfuscated(true, methods: [.xor(key: 1)])
+    static let apiTokenBytes = #Obfuscated([0xDE, 0xAD, 0xBE, 0xEF], methods: [.xor(key: 0x5A)])
+    fileprivate static let environment: DemoEnvironment = #Obfuscated(DemoEnvironment.production, methods: [.xor(key: 0x3C)])
+    fileprivate static let role: DemoRole = #Obfuscated("admin", as: DemoRole.self, methods: [.xor(key: 0x2A)])
+    fileprivate static let themeColor: DemoColor = #Obfuscated(1, as: DemoColor.self, methods: [.xor(key: 0x7)])
 }
 
 struct DemoExample: Identifiable {
@@ -319,6 +357,78 @@ enum DemoCatalog {
             plaintext: "P256 with explicit recipient key",
             value: DemoSecrets.explicitP256Secret,
             methods: [.p256AESGCM(recipientPrivateKey: DemoMaterial.p256Recipient, nonce: nil)]
+        ),
+    ]
+
+    private static func typedExample<T: ObfuscatedValue>(
+        title: String,
+        macroSource: String,
+        plaintext: T,
+        value: T,
+        methods: [ObfuscationMethod],
+        note: String? = nil
+    ) -> DemoExample where T: CustomStringConvertible {
+        let payload = try? ObfuscationPipeline.encode(plaintext, methods: methods)
+        let plaintextBytes = (try? T.plaintextBytes(from: plaintext)) ?? []
+        let display = String(describing: value)
+        let expected = String(describing: plaintext)
+        return DemoExample(
+            title: title,
+            macroSource: macroSource,
+            plaintext: expected,
+            value: display,
+            note: note,
+            encodedByteCount: payload?.bytes.count ?? 0,
+            matchesPlaintextUTF8: payload?.bytes == plaintextBytes
+        )
+    }
+
+    static let typedValueExamples: [DemoExample] = [
+        typedExample(
+            title: "Int",
+            macroSource: #"#Obfuscated(443, methods: [.xor(key: 0x11)])"#,
+            plaintext: 443,
+            value: DemoSecrets.portNumber,
+            methods: [.xor(key: 0x11)]
+        ),
+        typedExample(
+            title: "Bool",
+            macroSource: #"#Obfuscated(true, methods: [.xor(key: 1)])"#,
+            plaintext: true,
+            value: DemoSecrets.featureEnabled,
+            methods: [.xor(key: 1)]
+        ),
+        typedExample(
+            title: "Data",
+            macroSource: #"#Obfuscated([0xDE, 0xAD, 0xBE, 0xEF], methods: [.xor(key: 0x5A)])"#,
+            plaintext: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+            value: DemoSecrets.apiTokenBytes,
+            methods: [.xor(key: 0x5A)],
+            note: "Byte array literals decode to Data."
+        ),
+        example(
+            title: "Enum case (CaseIterable)",
+            macroSource: #"#Obfuscated(DemoEnvironment.production, methods: [.xor(key: 0x3C)])"#,
+            plaintext: "production",
+            value: DemoSecrets.environment.description,
+            methods: [.xor(key: 0x3C)],
+            note: "Case name is obfuscated as a string; requires CaseIterable. Enums without RawRepresentable use this form only."
+        ),
+        example(
+            title: "Enum (String raw value)",
+            macroSource: #"#Obfuscated("admin", as: DemoRole.self, methods: [.xor(key: 0x2A)])"#,
+            plaintext: "admin",
+            value: DemoSecrets.role.description,
+            methods: [.xor(key: 0x2A)],
+            note: "Hides the string raw value. If DemoRole were CaseIterable, `#Obfuscated(DemoRole.admin, ...)` would hide the case name instead."
+        ),
+        example(
+            title: "Enum (Int raw value)",
+            macroSource: #"#Obfuscated(1, as: DemoColor.self, methods: [.xor(key: 0x7)])"#,
+            plaintext: "red",
+            value: DemoSecrets.themeColor.description,
+            methods: [.xor(key: 0x7)],
+            note: "Hides the int raw value. DemoColor is not CaseIterable; add CaseIterable to also allow `#Obfuscated(DemoColor.red, ...)` (hides the name \"red\")."
         ),
     ]
 

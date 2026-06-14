@@ -25,6 +25,8 @@ struct ContentView: View {
 
                 demoSection("Edge Cases", examples: DemoCatalog.edgeCaseExamples)
 
+                demoSection("Typed Values", examples: DemoCatalog.typedValueExamples)
+
                 demoSection("Custom Steps", examples: DemoCatalog.customStepExamples)
 
                 demoSection("Pipelines", examples: DemoCatalog.pipelineExamples)

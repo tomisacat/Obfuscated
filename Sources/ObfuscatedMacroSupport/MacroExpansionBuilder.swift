@@ -1,18 +1,53 @@
+import Foundation
 import ObfuscatedCore
 import SwiftSyntax
 import SwiftSyntaxBuilder
 
-/// Builds Swift source for macro expansions that call ``ObfuscatedRuntime/_decode(bytes:methods:material:)``.
+/// Builds Swift source for macro expansions that call ``ObfuscatedRuntime`` decode helpers.
 public enum MacroExpansionBuilder {
     /// Encodes a string at compile time and builds the decode call expression.
     public static func decodeExpression(string: String, methods: [ObfuscationMethod]) throws -> ExprSyntax {
-        ObfuscationMacroConfiguration.ensureRegistered()
         let payload = try ObfuscationPipeline.encode(string, methods: methods)
-        return try decodeExpression(payload: payload, methods: methods)
+        return try decodeStringExpression(payload: payload, methods: methods)
     }
 
-    /// Builds the decode call expression from a pre-encoded payload.
-    public static func decodeExpression(payload: EncodedPayload, methods: [ObfuscationMethod]) throws -> ExprSyntax {
+    /// Encodes any ``ObfuscatedValue`` and builds a typed decode call expression.
+    public static func decodeExpression<T: ObfuscatedValue>(
+        value: T,
+        methods: [ObfuscationMethod],
+        as type: T.Type
+    ) throws -> ExprSyntax {
+        let payload = try ObfuscationPipeline.encode(value, methods: methods)
+        return try decodeTypedExpression(payload: payload, methods: methods, typeName: "\(type).self")
+    }
+
+    /// Encodes a byte array as ``Data`` and builds a typed decode call expression.
+    public static func decodeDataExpression(bytes: [UInt8], methods: [ObfuscationMethod]) throws -> ExprSyntax {
+        try decodeExpression(value: Data(bytes), methods: methods, as: Data.self)
+    }
+
+    /// Encodes a ``RawRepresentable`` raw value and builds a decode call expression.
+    public static func decodeRawRepresentableExpression(
+        rawValue: some ObfuscatedValue,
+        typeName: String,
+        methods: [ObfuscationMethod]
+    ) throws -> ExprSyntax {
+        let payload = try ObfuscationPipeline.encode(rawValue, methods: methods)
+        return try decodeRawRepresentableExpression(payload: payload, methods: methods, typeName: typeName)
+    }
+
+    /// Encodes an enum case name and builds a ``CaseIterable`` decode call expression.
+    public static func decodeEnumCaseExpression(
+        caseName: String,
+        typeName: String,
+        methods: [ObfuscationMethod]
+    ) throws -> ExprSyntax {
+        let payload = try ObfuscationPipeline.encode(caseName, methods: methods)
+        return try decodeEnumCaseExpression(payload: payload, methods: methods, caseName: caseName, typeName: typeName)
+    }
+
+    /// Builds the string decode call expression from a pre-encoded payload.
+    public static func decodeStringExpression(payload: EncodedPayload, methods: [ObfuscationMethod]) throws -> ExprSyntax {
         let bytesLiteral = payload.bytes.map(String.init).joined(separator: ", ")
         let methodsLiteral = try methodsSyntax(methods)
         let materialLiteral = materialSyntax(payload.material)
@@ -24,6 +59,73 @@ public enum MacroExpansionBuilder {
             material: \(raw: materialLiteral)
         )
         """
+    }
+
+    /// Builds a typed decode call expression from a pre-encoded payload.
+    public static func decodeTypedExpression(
+        payload: EncodedPayload,
+        methods: [ObfuscationMethod],
+        typeName: String
+    ) throws -> ExprSyntax {
+        let bytesLiteral = payload.bytes.map(String.init).joined(separator: ", ")
+        let methodsLiteral = try methodsSyntax(methods)
+        let materialLiteral = materialSyntax(payload.material)
+
+        return """
+        ObfuscatedRuntime._decode(
+            bytes: [\(raw: bytesLiteral)],
+            methods: \(methodsLiteral),
+            material: \(raw: materialLiteral),
+            as: \(raw: typeName)
+        )
+        """
+    }
+
+    /// Builds a ``RawRepresentable`` decode call expression from a pre-encoded payload.
+    public static func decodeRawRepresentableExpression(
+        payload: EncodedPayload,
+        methods: [ObfuscationMethod],
+        typeName: String
+    ) throws -> ExprSyntax {
+        let bytesLiteral = payload.bytes.map(String.init).joined(separator: ", ")
+        let methodsLiteral = try methodsSyntax(methods)
+        let materialLiteral = materialSyntax(payload.material)
+
+        return """
+        ObfuscatedRuntime._decodeRawRepresentable(
+            bytes: [\(raw: bytesLiteral)],
+            methods: \(methodsLiteral),
+            material: \(raw: materialLiteral),
+            as: \(raw: typeName)
+        )
+        """
+    }
+
+    /// Builds a ``CaseIterable`` enum decode call expression from a pre-encoded payload.
+    public static func decodeEnumCaseExpression(
+        payload: EncodedPayload,
+        methods: [ObfuscationMethod],
+        caseName: String,
+        typeName: String
+    ) throws -> ExprSyntax {
+        let bytesLiteral = payload.bytes.map(String.init).joined(separator: ", ")
+        let methodsLiteral = try methodsSyntax(methods)
+        let materialLiteral = materialSyntax(payload.material)
+
+        return """
+        ObfuscatedRuntime._decodeCaseIterable(
+            bytes: [\(raw: bytesLiteral)],
+            methods: \(methodsLiteral),
+            material: \(raw: materialLiteral),
+            caseName: "\(raw: caseName)",
+            as: \(raw: typeName).self
+        )
+        """
+    }
+
+    /// Builds the decode call expression from a pre-encoded payload.
+    public static func decodeExpression(payload: EncodedPayload, methods: [ObfuscationMethod]) throws -> ExprSyntax {
+        try decodeStringExpression(payload: payload, methods: methods)
     }
 
     private static func methodsSyntax(_ methods: [ObfuscationMethod]) throws -> ExprSyntax {
