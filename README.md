@@ -1,5 +1,19 @@
 # Obfuscated
 
+<p align="center">
+  <a href="https://github.com/tomisacat/Obfuscated/actions/workflows/ci.yml">
+    <img src="https://github.com/tomisacat/Obfuscated/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/tomisacat/Obfuscated/releases">
+    <img src="https://img.shields.io/github/v/release/tomisacat/Obfuscated?label=release" alt="Release">
+  </a>
+  <img src="https://img.shields.io/badge/Swift-6.2+-orange.svg" alt="Swift 6.2+">
+  <img src="https://img.shields.io/badge/platforms-macOS%20%7C%20iOS%20%7C%20tvOS%20%7C%20watchOS-lightgrey" alt="Platforms">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License">
+  </a>
+</p>
+
 Compile-time value obfuscation for Swift via freestanding macros.
 
 Use `#Obfuscated(...)` with a **compile-time literal** and get a normal value back — `String`, `Int`, `Bool`, `Data`, or enum — with no wrapper type, no manual decode, and no extra setup. Obfuscation happens at build time; the rest of your code treats the result like any ordinary value.
